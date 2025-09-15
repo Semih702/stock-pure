@@ -1,0 +1,23 @@
+seed: 42
+device: "cuda"   # "cuda" | "cpu" | "mps"
+log_dir: "runs"
+
+data:
+  root: "data"
+  batch_size: 128
+  num_workers: 4
+  shuffle: true
+  val_split: 0.1
+  input_dim: 784      # örnek: 28x28 resim
+  num_classes: 10
+
+train:
+  epochs: 5
+  lr: 1e-3
+  weight_decay: 1e-4
+  grad_clip: 1.0
+  mixed_precision: false
+
+model:
+  hidden_dims: [512, 256]
+  dropout: 0.1

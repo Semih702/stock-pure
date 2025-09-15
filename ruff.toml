@@ -1,0 +1,16 @@
+line-length = 100
+target-version = "py310"
+
+# Rule sets: E/F/W (pycodestyle/pyflakes), I (isort), UP (pyupgrade),
+# N (pep8-naming), B (bugbear), C4 (comprehensions)
+select = ["E", "F", "W", "I", "UP", "N", "B", "C4"]
+
+# Black handles these:
+ignore = [
+  "E203",
+  "E501",
+]
+
+[per-file-ignores]
+# example: allow 'assert' in tests if you want later
+"tests/**/*" = []

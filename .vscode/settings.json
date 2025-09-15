@@ -1,0 +1,7 @@
+{
+  "python.formatting.provider": "black",
+  "editor.defaultFormatter": "ms-python.black-formatter",
+  "editor.formatOnSave": true,
+  "ruff.lint.run": "onType",
+  "python.analysis.typeCheckingMode": "basic"
+}
