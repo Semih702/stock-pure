@@ -20,6 +20,7 @@ STOCK-PURE/
 │  └─ main.py          # Entry point for training / evaluation
 ├─ requirements.txt    # Python dependencies
 └─ README.md           # Project documentation
+```
 
 ---
 
@@ -90,15 +91,6 @@ This ensures fast iteration while keeping the repository clean and reproducible.
    git add .
    git commit -m "Add PatchTST model and integrate with training loop"
    git push origin feature/my-new-feature
-
----
-
-## 📌 Roadmap
-
-- [ ] Add dataset preprocessing utilities  
-- [ ] Implement baseline models (MLP, LSTM)  
-- [ ] Integrate state-of-the-art architectures (PatchTST, iTransformer, TimeMixer)  
-- [ ] Add backtesting and evaluation metrics  
 
 ---
 
