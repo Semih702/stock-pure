@@ -7,6 +7,7 @@ The current focus is on building a modular codebase that can easily integrate **
 
 ## 📂 Project Structure
 
+```text
 STOCK-PURE/
 ├─ configs/            # Configuration files (YAML)
 │  └─ default.yaml
