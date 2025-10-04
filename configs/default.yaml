@@ -8,7 +8,7 @@ data:
   num_workers: 4
   shuffle: true
   val_split: 0.1
-  input_dim: 784      # örnek: 28x28 resim
+  input_dim: 784
   num_classes: 10
 
 train:
