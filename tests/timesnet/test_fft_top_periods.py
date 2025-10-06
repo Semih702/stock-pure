@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import math
+from typing import cast
 
 import torch
 
-from models.timesnet.ops import fft_top_periods
+from models.timesnet.types import BTC
+from models.timesnet.utils import fft_top_periods
 
 
 def make_sine_batch(
@@ -37,7 +39,10 @@ def test_fft_top_periods_single_strong_cycle_detected():
     x = make_sine_batch(b, t, c, period=true_period, amplitude=1.0)
 
     k = 1
-    periods, weights = fft_top_periods(x, k)
+    periods, weights = fft_top_periods(
+        cast(BTC, x),
+        k,
+    )
 
     # Shapes
     assert periods.shape == (k,)
@@ -62,7 +67,7 @@ def test_fft_top_periods_two_cycles_ordered_by_amplitude():
     x = x1 + x2
 
     k = 2
-    periods, weights = fft_top_periods(x, k)
+    periods, weights = fft_top_periods(cast(BTC, x), k)
 
     # We expect the strongest period first (since amp_mean drives topk)
     got = sorted([int(periods[0].item()), int(periods[1].item())])
@@ -90,7 +95,7 @@ def test_fft_top_periods_ignores_dc_component():
     x += make_sine_batch(b, t, c, period=16, amplitude=0.1, phase_offset_per_batch=False)
 
     k = 1
-    periods, _ = fft_top_periods(x, k)
+    periods, _ = fft_top_periods(cast(BTC, x), k)
     assert int(periods[0].item()) == 16  # not +inf/0; DC suppressed
 
 
@@ -102,7 +107,7 @@ def test_fft_top_periods_device_dtype_and_no_grad():
     x = torch.randn(b, t, c, device=device, dtype=torch.float32, requires_grad=False)
 
     k = 3
-    periods, weights = fft_top_periods(x, k)
+    periods, weights = fft_top_periods(cast(BTC, x), k)
     assert periods.device == x.device
     assert weights.device == x.device
     assert periods.dtype in (torch.int64, torch.long)
