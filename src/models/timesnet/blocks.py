@@ -10,6 +10,24 @@ from beartype import beartype
 from .types import BCRP, BTC
 from .utils import fft_top_periods
 
+# ---- Layout indices ----
+# Original 3D: BTC = [B, T, C]
+BTC_B: int = 0
+BTC_T: int = 1
+BTC_C: int = 2
+
+# After reshape (before permute): BRPC = [B, Rows, Period, C]
+BRPC_B: int = 0
+BRPC_R: int = 1
+BRPC_P: int = 2
+BRPC_C: int = 3
+
+# Folded target 4D: BCRP = [B, C, Rows, Period]
+BCRP_B: int = 0
+BCRP_C: int = 1
+BCRP_R: int = 2
+BCRP_P: int = 3
+
 
 class TimesBlock(nn.Module):
     """Fold 1D into 2D by dominant periods, apply conv2d, unfold, and aggregate.
@@ -42,17 +60,21 @@ class TimesBlock(nn.Module):
         b, t, c = x.shape
         p = max(int(period), 1)
 
-        if total_len % p != 0:
-            rows = total_len // p + 1
-            pad = rows * p - total_len
-            x = cast(
-                BTC, torch.cat([x, torch.zeros(b, pad, c, device=x.device, dtype=x.dtype)], dim=1)
-            )
-        else:
-            rows = total_len // p
+        # Compute target rows regardless of divisibility
+        target_len = max(total_len, t)
+        rows = (target_len + p - 1) // p  # ceil(target_len / p)
+        pad = rows * p - t  # pad from current length t
 
-        y = x.reshape(b, rows, p, c).permute(0, 3, 1, 2).contiguous()  # [b,c,rows,p]
-        return cast(BCRP, y), rows  # <-- cast for static checker
+        if pad:
+            x = cast(BTC, torch.cat([x, x.new_zeros(b, pad, c)], dim=BTC_T))
+
+        # [B,T',C] -> [B,Rows,Period,C] -> [B,C,Rows,Period]
+        y = (
+            x.reshape(b, rows, p, c)
+            .permute(BRPC_B, BRPC_C, BRPC_R, BRPC_P)  # (0,3,1,2)
+            .contiguous()
+        )
+        return cast(BCRP, y), rows
 
     @beartype
     def unfold_time(self, y: BCRP, rows: int, period: int, total_len: int, t_orig: int) -> BTC:
@@ -60,9 +82,15 @@ class TimesBlock(nn.Module):
         if rows < 1 or period < 1 or total_len < 1 or t_orig < 1:
             raise ValueError("rows, period, total_len, t_orig must be >= 1")
         b, c, _, p = y.shape
-        out = y.permute(0, 2, 3, 1).reshape(b, rows * p, c)  # [b, rows*period, c]
-        out = out[:, :total_len, :][:, :t_orig, :]
-        return cast(BTC, out)  # <-- cast for static checker
+
+        out = (
+            y.permute(BCRP_B, BCRP_R, BCRP_P, BCRP_C)  # [B,Rows,Period,C]
+            .contiguous()
+            .reshape(b, rows * p, c)  # [B,Rows*Period,C]
+        )
+        # Crop only to the original requested length
+        out = out[:, :t_orig, :]
+        return cast(BTC, out)
 
     @beartype
     def forward(self, x: BTC, total_len: int) -> BTC:
