@@ -9,3 +9,24 @@ repos:
     rev: v0.6.8
     hooks:
       - id: ruff
+
+  # Run pytest
+  - repo: local
+    hooks:
+      # Fast unit tests on commit (skip slow/integration/gpu)
+      - id: pytest-quick
+        name: pytest (quick)
+        entry: pytest -q -m "unit and not slow and not gpu" --maxfail=1 tests
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
+
+      # Full suite on push
+      - id: pytest-full
+        name: pytest (full)
+        entry: pytest -q tests
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [push]
