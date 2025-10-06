@@ -3,3 +3,5 @@ torchvision>=0.17
 tqdm>=4.66
 numpy>=1.26
 pyyaml>=6.0.1
+torchtyping>=0.1.4
+beartype>=0.16
