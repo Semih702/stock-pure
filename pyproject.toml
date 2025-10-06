@@ -1,3 +1,19 @@
+[project]
+name = "stock_pure"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
 [tool.black]
 line-length = 100
 target-version = ["py310"]
