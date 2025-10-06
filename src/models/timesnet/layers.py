@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 import math
+from typing import cast
 
 import torch
 import torch.nn as nn
+from beartype import beartype
+
+from .types import BTC, BTD
 
 # TODO only have the parts that actually being used by timesnet but consider this while adding new models (timemixer and itransformer)
 
 
 class PositionalEmbedding(nn.Module):
-    """Sinusoidal positional embedding (fixed, no gradients).
-
-    Given x of shape [b, t, d?], returns pe[:, :t, :] with shape [1, t, d_model].
-    """
+    """Sinusoidal positional embedding (fixed, no gradients)."""
 
     pe: torch.Tensor
 
@@ -21,21 +22,23 @@ class PositionalEmbedding(nn.Module):
         pe = torch.zeros(max_len, d_model, dtype=torch.float)
         pe.requires_grad_(False)
 
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)  # [max_len, 1]
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(
             torch.arange(0, d_model, 2, dtype=torch.float) * -(math.log(10000.0) / d_model)
-        )  # [d_model/2]
+        )
 
-        pe[:, 0::2] = torch.sin(position * div_term)  # even
-        pe[:, 1::2] = torch.cos(position * div_term)  # odd
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
 
         self.register_buffer("pe", pe.unsqueeze(0))  # [1, max_len, d_model]
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    @beartype
+    def forward(self, x: BTC) -> BTD:
         t = x.size(1)
         if t > self.pe.size(1):
             raise ValueError(f"PositionalEmbedding max_len={self.pe.size(1)} < seq_len={t}")
-        return self.pe[:, :t]
+        out: torch.Tensor = self.pe[:, :t]
+        return cast(BTD, out)
 
 
 class TokenEmbedding(nn.Module):
