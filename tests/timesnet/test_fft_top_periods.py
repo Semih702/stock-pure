@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 from typing import cast
 
+import pytest
 import torch
 
 from models.timesnet.types import BTC
@@ -32,6 +33,7 @@ def make_sine_batch(
 
 
 @torch.no_grad()
+@pytest.mark.unit
 def test_fft_top_periods_single_strong_cycle_detected():
     torch.manual_seed(0)
     b, t, c = 8, 120, 3  # 120 steps → rFFT bins 0..60
@@ -56,6 +58,7 @@ def test_fft_top_periods_single_strong_cycle_detected():
 
 
 @torch.no_grad()
+@pytest.mark.unit
 def test_fft_top_periods_two_cycles_ordered_by_amplitude():
     torch.manual_seed(0)
     b, t, c = 4, 240, 2
@@ -87,6 +90,7 @@ def test_fft_top_periods_two_cycles_ordered_by_amplitude():
 
 
 @torch.no_grad()
+@pytest.mark.unit
 def test_fft_top_periods_ignores_dc_component():
     # DC = constant offset; should not be selected
     b, t, c = 2, 128, 1
@@ -100,6 +104,7 @@ def test_fft_top_periods_ignores_dc_component():
 
 
 @torch.no_grad()
+@pytest.mark.unit
 def test_fft_top_periods_device_dtype_and_no_grad():
     # Ensure it runs on float32, and no gradients are recorded (decorated with @no_grad)
     device = "cuda" if torch.cuda.is_available() else "cpu"
