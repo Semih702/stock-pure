@@ -1,0 +1,32 @@
+{
+  "impl": "upstream",
+  "dataset": "hf_bitcoin",
+  "resample": "1H",
+  "context": 96,
+  "horizon": 24,
+  "train_ratio": 0.8,
+  "epochs": 3,
+  "batch_size": 64,
+  "lr": 0.001,
+  "device": "cpu",
+  "train_time_s": 3.5345991000067443,
+  "infer_time_ms_mean": 8.891199995890599,
+  "infer_time_ms_std": 1.6308611295477673,
+  "metrics": {
+    "model": {
+      "MAE": 20657.8359375,
+      "RMSE": 20796.744140625,
+      "MAPE": 0.9984979033470154
+    },
+    "naive": {
+      "MAE": 20689.228515625,
+      "RMSE": 20829.962890625,
+      "MAPE": 0.9999343752861023
+    },
+    "seasonal_naive": {
+      "MAE": 20689.298828125,
+      "RMSE": 20830.03125,
+      "MAPE": 0.9999377727508545
+    }
+  }
+}
