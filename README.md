@@ -55,6 +55,28 @@ python scripts/default_run.py
 
 ---
 
+## Running Benchmarks
+
+You can run both the stockpure implementation and the upstream TimesNet implementation benchmarks using the helper script:
+
+```text
+python scripts/run_timesnet_bench.py \
+  --upstream-root .cache/upstream_timesnet \
+  --device cpu \
+  --epochs 3 \
+  --write-report
+```
+
+- --upstream-root → path to the cloned upstream TimesNet repo.
+
+- --device → choose cpu or cuda.
+
+- --epochs → number of epochs to train for quick smoke tests.
+
+- --write-report → generate a merged Markdown report in results/bench/.
+
+This will create JSON and Markdown reports under results/bench/ for easy comparison.
+
 ## 🤝 Contributing
 
 The common practice in ML/DL projects is to **prototype first in Jupyter notebooks**, then refactor stable code into the main project structure.  
