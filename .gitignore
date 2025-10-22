@@ -18,3 +18,8 @@ Thumbs.db
 *.egg-info/
 dist/
 build/
+
+# IDE & editor settings
+.idea/
+*.iml
+.vscode/
