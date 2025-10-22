@@ -49,11 +49,91 @@ source .venv/bin/activate   # On Windows: .venv\Scripts\activate
 
 ### 3. Install dependencies
 pip install -r requirements.txt
+pip install -e .
 
 ### 4. Run a quick experiment
 python scripts/default_run.py
 
 ---
+
+## 📊 Fetching Stock Market Data (Yahoo Finance)
+
+To download historical stock data from **Yahoo Finance** and store it locally for experiments, run:
+
+```bash
+python src/scripts/fetch_yahoo_stock_data.py
+```
+
+This script retrieves daily OHLCV data (Open, High, Low, Close, Volume) for several major tickers such as Apple, Tesla, Microsoft, and Google, starting from **January 1, 2020** up to the current date.
+
+The data will be automatically saved under:
+
+```
+src/data/yahoo-finance/
+├── apple.csv
+├── tesla.csv
+├── meta.csv
+├── ...
+```
+
+Each file contains time-indexed historical prices with all standard columns provided by Yahoo Finance.
+
+**Note:**  
+- Ensure you have internet access and `yfinance` installed (`pip install yfinance`).  
+- You can modify the script to change the date range or the list of tickers.
+
+## 🧠 Quick TimesNet Training (Single-CSV Experiment)
+
+Once your Yahoo Finance data is ready, you can train a small TimesNet-based model on any single stock CSV using the helper script below.  
+This performs an **automatic train/val/test split**, builds sliding windows, and trains a minimal TimesNet variant (`TinyForecastSP`) for a few epochs.
+
+### ▶️ Run a quick test
+
+```bash
+python src/scripts/train_timesnet_from_csv.py \
+  --in-dir src/data/yahoo-finance \
+  --name apple.csv \
+  --context 96 \
+  --horizon 24 \
+  --epochs 3 \
+  --batch-size 64 \
+  --lr 1e-3 \
+  --features Close Open High Low Volume \
+  --target Close \
+  --device cpu
+```
+
+This will:
+
+- Automatically split `apple.csv` into `train`, `val`, and `test` under:
+  ```
+  src/data/yahoo-finance/splits/apple/
+  ```
+- Train a small TimesNet model for **3 epochs** (quick smoke test).
+- Save a report with metrics such as **MAE**, **RMSE**, and **MAPE** under:
+  ```
+  results/quickrun/timesnet_from_csv.json
+  ```
+
+To skip re-splitting if the data already exists, just add:
+```bash
+--skip-split
+```
+
+### 💡 Example output
+
+```
+🔧 Splitting src/data/yahoo-finance/apple.csv into train/val/test...
+epoch 1/3 | train L1=1.2345
+epoch 2/3 | train L1=0.9831
+epoch 3/3 | train L1=0.9512
+val L1=0.9974
+Test metrics: MAE=0.9521 | RMSE=1.2243 | MAPE=0.0357
+Wrote: results/quickrun/timesnet_from_csv.json
+```
+
+**Tip:**  
+Run with `--device cuda` if a GPU is available for faster experiments.
 
 ## Running Benchmarks
 

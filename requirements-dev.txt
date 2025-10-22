@@ -8,4 +8,6 @@ pandas>=2.2
 numpy>=1.26
 datasets>=3.0
 pyarrow>=17.0
-tabulate>=0.9  # optional: pretty tables in Markdown reports
+tabulate>=0.9  # optional
+
+yfinance>=0.2.40
