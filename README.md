@@ -196,6 +196,56 @@ This ensures fast iteration while keeping the repository clean and reproducible.
 
 ---
 
+## 🖥️ Running on an HPC Cluster (SLURM)
+
+When working on an HPC cluster, you first need to obtain an **interactive compute session** before running any training script.  
+Use the following `srun` command to request a GPU-enabled session:
+
+```bash
+srun -p cuda -A users --qos=cuda -N1 -n1 -t 02:00:00 --pty bash -l
+```
+
+```bash
+srun -p cuda -A users --qos=cuda \
+     --gres=gpu:1 \
+     -N1 -n1 \
+     -t 02:00:00 \
+     --pty bash
+```
+
+## 🔧 Activating an Existing Virtual Environment
+
+If a Python virtual environment already exists in the project (for example `.venv/`), you can activate it inside the HPC session with:
+
+### **Linux / macOS**
+```bash
+source .venv/bin/activate
+```
+
+### **Windows (PowerShell)**
+```powershell
+.venv\Scripts\activate
+```
+
+After activation, your prompt should look like:
+
+```
+(.venv) user@login:~$
+```
+
+You can now run your experiments, for example:
+
+```bash
+python scripts/default_run.py
+```
+
 ## 📜 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+
+python src/scripts/train_timesnet_from_csv.py   --in-dir src/data/yahoo-finance   --name apple.csv   --context 128   --horizon 32   --epochs 30   --batch-size 128   --lr 1e-3   --features Close Open High Low Volume   --target Close   --device cuda   --k 4   --num-kernels 6   --out results/quickrun/timesnet_from_csv.json
+
+srun -p cuda -A users --qos=cuda \
+     --gres=gpu:1 \
+     --pty bash

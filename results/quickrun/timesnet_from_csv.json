@@ -12,17 +12,24 @@
   "target": "Close",
   "context": 128,
   "horizon": 32,
-  "epochs": 100,
+  "epochs": 30,
   "batch_size": 128,
   "lr": 0.001,
   "device": "cuda",
   "k": 4,
   "num_kernels": 6,
-  "train_time_s": 15.95688035688363,
-  "val_l1": 261609.546875,
+  "train_time_s": 6.609378156019375,
+  "val_l1": 874340.625,
   "metrics": {
-    "MAE": 1116966.625,
-    "RMSE": 1428456.25,
-    "MAPE": 4803.77783203125
+    "MAE": 1639877.25,
+    "RMSE": 2085763.625,
+    "MAPE": 7028.00341796875
+  },
+  "artifacts": {
+    "loss_curve": "results/quickrun/loss_curve.png",
+    "preds_vs_actual": "results/quickrun/predictions_vs_actual.png",
+    "multi_horizon": "results/quickrun/multi_horizon.png",
+    "scatter": "results/quickrun/scatter_pred_vs_true.png",
+    "test_predictions_csv": "results/quickrun/test_predictions.csv"
   }
 }
