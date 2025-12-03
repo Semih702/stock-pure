@@ -1,0 +1,28 @@
+{
+  "dataset": "apple",
+  "file": "src/data/yahoo-finance/apple.csv",
+  "in_dir": "src/data/yahoo-finance",
+  "features": [
+    "Close",
+    "Open",
+    "High",
+    "Low",
+    "Volume"
+  ],
+  "target": "Close",
+  "context": 128,
+  "horizon": 32,
+  "epochs": 100,
+  "batch_size": 128,
+  "lr": 0.001,
+  "device": "cuda",
+  "k": 4,
+  "num_kernels": 6,
+  "train_time_s": 15.95688035688363,
+  "val_l1": 261609.546875,
+  "metrics": {
+    "MAE": 1116966.625,
+    "RMSE": 1428456.25,
+    "MAPE": 4803.77783203125
+  }
+}
