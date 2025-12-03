@@ -11,6 +11,22 @@ Run:
       --in-dir src/data/yahoo-finance --name apple.csv \
       --context 96 --horizon 24 --epochs 3 --batch-size 64 --lr 1e-3 \
       --features Close Open High Low Volume --target Close --device cpu
+
+      
+python src/scripts/train_timesnet_from_csv.py \
+  --in-dir src/data/yahoo-finance \
+  --name apple.csv \
+  --context 128 \
+  --horizon 32 \
+  --epochs 100 \
+  --batch-size 128 \
+  --lr 1e-3 \
+  --features Close Open High Low Volume \
+  --target Close \
+  --device cuda \
+  --k 4 \
+  --num-kernels 6
+
 """
 
 from __future__ import annotations
@@ -64,7 +80,6 @@ def build_sliding_windows(
         y[i] = arr[i + context : i + context + horizon, target_col_idx]
     return torch.from_numpy(x), torch.from_numpy(y)
 
-
 def build_loader_from_csv(
     csv_path: Path,
     features: list[str],
@@ -72,7 +87,9 @@ def build_loader_from_csv(
     horizon: int,
     target: str,
     batch_size: int,
-) -> DataLoader:
+    drop_last: bool = True,
+    allow_empty: bool = False,
+) -> DataLoader | None:
     df = pd.read_csv(csv_path, parse_dates=True)
     missing = [f for f in features if f not in df.columns]
     if missing:
@@ -83,10 +100,21 @@ def build_loader_from_csv(
     feats = df[features].astype("float32").to_numpy()
     target_idx = features.index(target)
 
-    x, y = build_sliding_windows(feats, context, horizon, target_idx)
-    ds = TensorDataset(x, y)
-    return DataLoader(ds, batch_size=batch_size, shuffle=True, drop_last=True)
+    try:
+        x, y = build_sliding_windows(feats, context, horizon, target_idx)
+    except ValueError:
+        if allow_empty:
+            # Not enough rows for any window → no loader
+            return None
+        raise
 
+    # If windows exist but are fewer than batch_size and drop_last=True on train,
+    # you may end up with 0 batches. For val/test we default drop_last=False.
+    ds = TensorDataset(x, y)
+    if len(ds) == 0 and allow_empty:
+        return None
+
+    return DataLoader(ds, batch_size=batch_size, shuffle=True, drop_last=drop_last)
 
 # ---------------------------
 # Tiny TimesNet-based model
@@ -121,6 +149,10 @@ def main():
     ap.add_argument(
         "--in-dir", required=True, help="Folder containing the CSV (e.g., src/data/yahoo-finance)"
     )
+    ap.add_argument("--k", type=int, default=3,
+                help="Top-k Fourier components for TimesNet.")
+    ap.add_argument("--num-kernels", type=int, default=4,
+                help="Number of learned frequency kernels per TimesBlock.")
     ap.add_argument("--name", required=True, help="CSV file name (e.g., apple.csv)")
     ap.add_argument(
         "--features",
@@ -154,7 +186,7 @@ def main():
     dataset_name = csv_path.stem  # e.g., 'apple'
 
     # 1) Split (unless user already split)
-    if not args.skip_split if hasattr(args, "skip_splt") else not args.skip_split:  # backward-safe
+    if not args.skip_split:
         print(f"🔧 Splitting {csv_path} into train/val/test...")
         split_dataset(
             in_dir=in_dir,
@@ -179,20 +211,29 @@ def main():
         )
 
     dtr = build_loader_from_csv(
-        train_csv, args.features, args.context, args.horizon, args.target, args.batch_size
+        train_csv, args.features, args.context, args.horizon, args.target, args.batch_size,
+        drop_last=True,  allow_empty=False
     )
     dval = build_loader_from_csv(
-        val_csv, args.features, args.context, args.horizon, args.target, args.batch_size
+        val_csv,   args.features, args.context, args.horizon, args.target, args.batch_size,
+        drop_last=False, allow_empty=True
     )
     dte = build_loader_from_csv(
-        test_csv, args.features, args.context, args.horizon, args.target, args.batch_size
+        test_csv,  args.features, args.context, args.horizon, args.target, args.batch_size,
+        drop_last=False, allow_empty=True
     )
+
 
     c = len(args.features)
     device = args.device
 
     # 3) Model, opt, loss
-    model = TinyForecastSP(c=c, horizon=args.horizon).to(device)
+    model = TinyForecastSP(
+        c=c,
+        horizon=args.horizon,
+        k=args.k,
+        num_kernels=args.num_kernels
+    ).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_fn = nn.L1Loss()
 
@@ -215,29 +256,41 @@ def main():
         print(f"epoch {epoch + 1}/{args.epochs} | train L1={avg:.4f}")
     train_time_s = time.perf_counter() - t0
 
-    # 5) Validation
+    # Validation
     model.eval()
     with torch.no_grad():
-        v_losses = []
-        for xb, yb in dval:
-            xb, yb = xb.to(device), yb.to(device)
-            pred = model(xb)
-            v_losses.append(loss_fn(pred, yb).item())
-        val_l1 = float(np.mean(v_losses)) if v_losses else float("nan")
-        print(f"val L1={val_l1:.4f}")
+        if dval is None:
+            val_l1 = float("nan")
+            print(f"val L1=nan (not enough windows for context={args.context}, horizon={args.horizon})")
+        else:
+            v_losses = []
+            for xb, yb in dval:
+                xb, yb = xb.to(device), yb.to(device)
+                pred = model(xb)
+                v_losses.append(loss_fn(pred, yb).item())
+            val_l1 = float(np.mean(v_losses)) if v_losses else float("nan")
+            print(f"val L1={val_l1:.4f}")
 
-    # 6) Test metrics
-    yh_list, yt_list = [], []
+    # Test
     with torch.no_grad():
-        for xb, yb in dte:
-            xb, yb = xb.to(device), yb.to(device)
-            yh = model(xb)
-            yh_list.append(yh.cpu())
-            yt_list.append(yb.cpu())
-    yt = torch.cat(yt_list, 0)
-    yh = torch.cat(yh_list, 0)
-    m = metrics(yt, yh)
-    print(f"Test metrics: MAE={m['MAE']:.4f} | RMSE={m['RMSE']:.4f} | MAPE={m['MAPE']:.4f}")
+        if dte is None:
+            yh_list, yt_list = [], []
+        else:
+            yh_list, yt_list = [], []
+            for xb, yb in dte:
+                xb, yb = xb.to(device), yb.to(device)
+                yh = model(xb)
+                yh_list.append(yh.cpu())
+                yt_list.append(yb.cpu())
+
+    if len(yt_list) == 0:
+        m = {"MAE": float("nan"), "RMSE": float("nan"), "MAPE": float("nan")}
+        print("Test skipped (no windows).")
+    else:
+        yt = torch.cat(yt_list, 0)
+        yh = torch.cat(yh_list, 0)
+        m = metrics(yt, yh)
+        print(f"Test metrics: MAE={m['MAE']:.4f} | RMSE={m['RMSE']:.4f} | MAPE={m['MAPE']:.4f}")
 
     # 7) Save a tiny report
     res = {
@@ -252,10 +305,13 @@ def main():
         "batch_size": args.batch_size,
         "lr": args.lr,
         "device": device,
+        "k": args.k,
+        "num_kernels": args.num_kernels,
         "train_time_s": float(train_time_s),
         "val_l1": val_l1,
         "metrics": m,
     }
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(res, indent=2))
     print("Wrote:", args.out)
