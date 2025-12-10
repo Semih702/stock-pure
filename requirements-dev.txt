@@ -2,6 +2,7 @@ ruff>=0.5
 black>=24.8
 pre-commit>=3.7
 pytest>=8.0
+pyright>=1.1.407
 
 # benches & dataset smoke tests
 pandas>=2.2

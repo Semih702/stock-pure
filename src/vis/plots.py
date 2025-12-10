@@ -1,20 +1,21 @@
 # src/vis/plots.py
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Optional, Tuple
 
 # Headless-safe backend (works on servers/HPC)
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
 # ---------------------------
 # Helpers
 # ---------------------------
+
 
 def _to_1d_float(x) -> np.ndarray:
     """Coerce to 1-D float64 numpy array (no copies if already fine)."""
@@ -24,7 +25,7 @@ def _to_1d_float(x) -> np.ndarray:
     return a.ravel()
 
 
-def _finite_pair(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+def _finite_pair(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Filter to indices where both arrays are finite."""
     m = np.isfinite(a) & np.isfinite(b)
     return a[m], b[m]
@@ -47,20 +48,15 @@ def _debug_stats(name: str, arr: np.ndarray) -> str:
 def _ensure_dir(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-def inv_scale_horizons(arr_scaled: np.ndarray, scaler_y) -> np.ndarray:
-    N, H = arr_scaled.shape
-    out = np.empty_like(arr_scaled, dtype=np.float64)
-    for h in range(H):
-        out[:, h] = scaler_y.inverse_transform(arr_scaled[:, h].reshape(-1, 1)).ravel()
-    return out
 
 # ---------------------------
 # Plots
 # ---------------------------
 
+
 def save_loss_curves(
     train_l1: Iterable[float],
-    val_l1: Optional[Iterable[float]],
+    val_l1: Iterable[float] | None,
     out_dir: Path,
     fname: str = "loss_curve.png",
     title: str = "Training / Validation L1",
@@ -80,14 +76,11 @@ def save_loss_curves(
     plt.figure()
     ax = plt.gca()
 
-    any_plotted = False
-
     # --- Train ---
     if tr.size > 0:
         m_tr = np.isfinite(tr)
         if np.any(m_tr):
             ax.plot(epochs[m_tr], tr[m_tr], label="Train L1", marker="o")
-            any_plotted = True
         else:
             ax.plot([], [], label="Train L1 (no finite)")
     else:
@@ -100,7 +93,6 @@ def save_loss_curves(
             # if val length differs from train (rare), make its own epoch axis
             epochs_v = np.arange(1, len(vr) + 1, dtype=np.int64)
             ax.plot(epochs_v[m_vr], vr[m_vr], label="Val L1", marker="o")
-            any_plotted = True
         else:
             ax.plot([], [], label="Val L1 (no finite)")
 
@@ -125,12 +117,14 @@ def save_loss_curves(
     )
     return out_path
 
+
 def inv_scale_horizons(arr_scaled: np.ndarray, scaler) -> np.ndarray:
-    N, H = arr_scaled.shape
+    no_rows, no_columns = arr_scaled.shape
     out = np.empty_like(arr_scaled, dtype=np.float64)
-    for h in range(H):
+    for h in range(no_columns):
         out[:, h] = scaler.inverse_transform(arr_scaled[:, h].reshape(-1, 1)).ravel()
     return out
+
 
 def save_predictions_vs_actual(
     y_true_h0: np.ndarray,
@@ -138,7 +132,7 @@ def save_predictions_vs_actual(
     out_dir: Path,
     fname: str = "predictions_vs_actual.png",
     title_suffix: str = "",
-    x_index: Optional[np.ndarray] = None,   # <- NEW
+    x_index: np.ndarray | None = None,  # <- NEW
 ) -> Path:
     _ensure_dir(out_dir)
     yt = _to_1d_float(y_true_h0)
@@ -147,10 +141,17 @@ def save_predictions_vs_actual(
 
     plt.figure()
     if yt.size == 0:
-        plt.text(0.5, 0.5, "No finite data to plot", ha="center", va="center", transform=plt.gca().transAxes)
+        plt.text(
+            0.5,
+            0.5,
+            "No finite data to plot",
+            ha="center",
+            va="center",
+            transform=plt.gca().transAxes,
+        )
     else:
         if x_index is not None and len(x_index) >= len(yt):
-            x = np.asarray(x_index)[:len(yt)]
+            x = np.asarray(x_index)[: len(yt)]
         else:
             x = np.arange(len(yt))
         plt.plot(x, yt, label="Actual (h=0)")
@@ -171,8 +172,8 @@ def save_predictions_vs_actual(
 
 
 def save_multi_horizon_curves(
-    y_true: np.ndarray,   # [N, H]
-    y_pred: np.ndarray,   # [N, H]
+    y_true: np.ndarray,  # [N, H]
+    y_pred: np.ndarray,  # [N, H]
     horizons: Iterable[int],
     out_dir: Path,
     fname: str = "multi_horizon.png",
@@ -185,18 +186,25 @@ def save_multi_horizon_curves(
 
     if yt.ndim != 2 or yp.ndim != 2 or yt.shape != yp.shape or yt.size == 0:
         plt.figure()
-        plt.text(0.5, 0.5, f"Bad shapes: yt{yt.shape}, yp{yp.shape}", ha="center", va="center", transform=plt.gca().transAxes)
+        plt.text(
+            0.5,
+            0.5,
+            f"Bad shapes: yt{yt.shape}, yp{yp.shape}",
+            ha="center",
+            va="center",
+            transform=plt.gca().transAxes,
+        )
         out_path = out_dir / fname
         plt.savefig(out_path, dpi=160)
         plt.close()
         return out_path
 
-    N, H = yt.shape
-    horizons = [h for h in horizons if 0 <= h < H] or [0]
+    no_rows, no_columns = yt.shape
+    horizons = [h for h in horizons if 0 <= h < no_columns] or [0]
 
     # Downsample in N dimension
-    step = max(1, int(np.ceil(N / max_points)))
-    idx = np.arange(0, N, step)
+    step = max(1, int(np.ceil(no_rows / max_points)))
+    idx = np.arange(0, no_rows, step)
 
     plt.figure()
     any_plotted = False
@@ -211,7 +219,14 @@ def save_multi_horizon_curves(
         plt.plot(idx[: len(b[idx])], b[idx], label=f"Pred h={h}")
 
     if not any_plotted:
-        plt.text(0.5, 0.5, "No finite horizons to plot", ha="center", va="center", transform=plt.gca().transAxes)
+        plt.text(
+            0.5,
+            0.5,
+            "No finite horizons to plot",
+            ha="center",
+            va="center",
+            transform=plt.gca().transAxes,
+        )
 
     plt.xlabel("Test window index (downsampled)")
     plt.ylabel("Target value")
@@ -222,8 +237,7 @@ def save_multi_horizon_curves(
     plt.savefig(out_path, dpi=160)
     plt.close()
 
-    # Debug dump
-    lines = [f"N={N}, H={H}, step={step}, horizons={horizons}"]
+    lines = [f"N={no_rows}, H={no_columns}, step={step}, horizons={horizons}"]
     for h in horizons:
         a = yt[:, h]
         b = yp[:, h]
@@ -247,11 +261,17 @@ def save_scatter_pred_vs_true(
     yp = _to_1d_float(y_pred_h0)
     yt, yp = _finite_pair(yt, yp)
 
-    plt.figure(figsize=(7,5))
+    plt.figure(figsize=(7, 5))
 
     if yt.size == 0:
-        plt.text(0.5, 0.5, "No finite data to scatter",
-                 ha="center", va="center", transform=plt.gca().transAxes)
+        plt.text(
+            0.5,
+            0.5,
+            "No finite data to scatter",
+            ha="center",
+            va="center",
+            transform=plt.gca().transAxes,
+        )
     else:
         errors = yp - yt
 
@@ -297,7 +317,9 @@ def save_preds_csv(
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     yt = np.asarray(y_true, dtype=np.float64)
     yp = np.asarray(y_pred, dtype=np.float64)
-    assert yt.ndim == 2 and yp.ndim == 2 and yt.shape == yp.shape, "y_true/y_pred must be [N,H] same shape"
+    assert (
+        yt.ndim == 2 and yp.ndim == 2 and yt.shape == yp.shape
+    ), "y_true/y_pred must be [N,H] same shape"
 
     a = yt[:, 0]
     b = yp[:, 0]

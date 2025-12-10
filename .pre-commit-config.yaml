@@ -1,32 +1,44 @@
 repos:
-  - repo: https://github.com/psf/black
-    rev: 24.8.0
-    hooks:
-      - id: black
-        args: ["--line-length", "100", "--target-version", "py310"]
-
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.8
-    hooks:
-      - id: ruff
-
-  # Run pytest
   - repo: local
     hooks:
-      # Fast unit tests on commit (skip slow/integration/gpu)
+      - id: black
+        name: black
+        entry: black
+        language: system
+        args: ["--line-length", "100", "--target-version", "py310"]
+        pass_filenames: true
+        types_or: [python]
+
+      - id: ruff
+        name: ruff
+        entry: ruff
+        language: system
+        args: ["check"]
+        pass_filenames: true
+        types_or: [python]
+
+      # - id: pyright
+      #   name: pyright
+      #   entry: pyright
+      #   language: system
+      #   pass_filenames: false
+      #   always_run: true
+      #   stages: [pre-commit]
+
+  - repo: local
+    hooks:
       - id: pytest-quick
         name: pytest (quick)
         entry: pytest -q -m "unit and not slow and not gpu" --maxfail=1 tests
         language: system
         pass_filenames: false
         always_run: true
-        stages: [commit]
+        stages: [pre-commit]
 
-      # Full suite on push
       - id: pytest-full
         name: pytest (full)
         entry: pytest -q tests
         language: system
         pass_filenames: false
         always_run: true
-        stages: [push]
+        stages: [pre-push]
