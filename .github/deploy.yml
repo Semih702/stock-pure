@@ -1,0 +1,61 @@
+name: Deploy via SSH (keep venv)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install sshpass (for password auth)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Add server host key to known_hosts
+        env:
+          SSH_URI: ${{ secrets.SSH_URI }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          HOST="${SSH_URI##*@}"                 # extract host from user@host
+          ssh-keyscan -p "${SSH_PORT:-22}" -H "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy (git pull, keep venv)
+        env:
+          SSH_URI: ${{ secrets.SSH_URI }}
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
+          BRANCH: ${{ secrets.DEPLOY_BRANCH }}
+          SERVICE: ${{ secrets.SERVICE_NAME }}
+        run: |
+          set -e
+          sshpass -p "$SSH_PASSWORD" ssh -p "${SSH_PORT:-22}" -o StrictHostKeyChecking=yes \
+            "$SSH_URI" "REMOTE_DIR='$REMOTE_DIR' BRANCH='${BRANCH:-main}' SERVICE='${SERVICE:-}' bash -s" <<'EOS'
+          set -euo pipefail
+
+          cd "$REMOTE_DIR"
+
+          # fetch & fast-forward to remote branch
+          git fetch --all --prune
+          git checkout "$BRANCH" || git switch -c "$BRANCH"
+          git reset --hard "origin/$BRANCH"
+
+          # keep existing venv; only update deps if needed
+          if [ -f "venv/bin/activate" ]; then
+            . venv/bin/activate
+            if [ -f requirements.txt ]; then
+              python -m pip install --upgrade pip
+              pip install -r requirements.txt --upgrade-strategy only-if-needed
+            fi
+            deactivate
+          fi
+
+          # optional: restart service
+          if [ -n "$SERVICE" ]; then
+            systemctl --user restart "$SERVICE" 2>/dev/null || sudo systemctl restart "$SERVICE"
+          fi
+          EOS

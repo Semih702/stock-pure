@@ -219,7 +219,7 @@ If a Python virtual environment already exists in the project (for example `.ven
 
 ### **Linux / macOS**
 ```bash
-source .venv/bin/activate
+source venv/bin/activate
 ```
 
 ### **Windows (PowerShell)**
@@ -249,3 +249,14 @@ python src/scripts/train_timesnet_from_csv.py   --in-dir src/data/yahoo-finance 
 srun -p cuda -A users --qos=cuda \
      --gres=gpu:1 \
      --pty bash
+
+python src/scripts/train_timesnet_from_csv.py \
+  --in-dir src/data/yahoo-finance \
+  --name apple.csv \
+  --context 128 --horizon 32 \
+  --epochs 50 --batch-size 128 --lr 1e-3 \
+  --features Close Open High Low Volume \
+  --target Close \
+  --ma 20 50 --ema 12 26 --warmup --append-indicators \
+  --device cuda --k 4 --num-kernels 6 \
+  --out results/quickrun/timesnet_from_csv.json
