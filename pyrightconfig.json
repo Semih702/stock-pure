@@ -1,0 +1,25 @@
+{
+    "typeCheckingMode": "strict",
+    "pythonVersion": "3.10",
+    "include": [
+        "src",
+        "bench",
+        "scripts"
+    ],
+    "exclude": [
+        "**/__pycache__",
+        ".venv",
+        "venv",
+        "build",
+        "dist"
+    ],
+    "executionEnvironments": [
+        {
+            "root": ".",
+            "extraPaths": [
+                "src"
+            ]
+        }
+    ],
+    "reportMissingTypeStubs": "none",
+}

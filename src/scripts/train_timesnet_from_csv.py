@@ -28,15 +28,17 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from collections.abc import Sized
 from pathlib import Path
-from typing import List, Optional
+from typing import cast
 
 import numpy as np
 import pandas as pd
 import torch
+from numpy.typing import NDArray
+from sklearn.preprocessing import StandardScaler
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.preprocessing import StandardScaler
 
 # TimesNet block from your repo (keep as-is if your package is installed; otherwise use `from src.models...`)
 from models.timesnet.blocks import TimesBlock
@@ -46,17 +48,18 @@ from preprocess.split_dataset import split_dataset
 
 # Plotting utils (generic; no TimesNet dependency)
 from vis.plots import (
-    save_loss_curves,
-    save_predictions_vs_actual,
-    save_multi_horizon_curves,
-    save_scatter_pred_vs_true,
-    save_preds_csv,
     inv_scale_horizons,
+    save_loss_curves,
+    save_multi_horizon_curves,
+    save_predictions_vs_actual,
+    save_preds_csv,
+    save_scatter_pred_vs_true,
 )
 
 # ---------------------------
 # Small utilities
 # ---------------------------
+
 
 def set_repro(seed: int = 42) -> None:
     torch.manual_seed(seed)
@@ -87,8 +90,8 @@ def build_sliding_windows(
 
 
 def _build_clean_windows(
-    feats: np.ndarray,          # shape [T, C]
-    target: np.ndarray,         # shape [T]
+    feats: np.ndarray,  # shape [T, C]
+    target: np.ndarray,  # shape [T]
     context: int,
     horizon: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -97,19 +100,19 @@ def _build_clean_windows(
     Returns:
       x: [N, context, C], y: [N, horizon]
     """
-    T, C = feats.shape
-    n = T - context - horizon + 1
+    t, c = feats.shape
+    n = t - context - horizon + 1
     if n <= 0:
-        raise ValueError(f"Not enough rows ({T}) for context={context} and horizon={horizon}.")
+        raise ValueError(f"Not enough rows ({t}) for context={context} and horizon={horizon}.")
 
-    feats_finite = np.isfinite(feats).all(axis=1)          # [T]
-    targ_finite  = np.isfinite(target)                     # [T]
+    feats_finite: NDArray[np.bool_] = np.asarray(np.isfinite(feats).all(axis=1))
+    targ_finite: NDArray[np.bool_] = np.asarray(np.isfinite(target))  # [T]
 
     keep_idxs = []
     for i in range(n):
         ctx_ok = feats_finite[i : i + context].all()
         # y spans rows [i+context, i+context+horizon)
-        y_ok   = targ_finite[i + context : i + context + horizon].all()
+        y_ok = targ_finite[i + context : i + context + horizon].all()
         if ctx_ok and y_ok:
             keep_idxs.append(i)
 
@@ -117,7 +120,9 @@ def _build_clean_windows(
         raise ValueError("No valid windows after filtering (NaN/Inf in context/horizon).")
 
     x = np.stack([feats[i : i + context, :] for i in keep_idxs], axis=0).astype(np.float32)
-    y = np.stack([target[i + context : i + context + horizon] for i in keep_idxs], axis=0).astype(np.float32)
+    y = np.stack([target[i + context : i + context + horizon] for i in keep_idxs], axis=0).astype(
+        np.float32
+    )
     return torch.from_numpy(x), torch.from_numpy(y)
 
 
@@ -130,10 +135,10 @@ def build_loader_from_csv(
     batch_size: int,
     drop_last: bool = True,
     allow_empty: bool = False,
-    dropna: bool = True,          # ← we keep this for backward-compat
-    scaler_X: StandardScaler | None = None,  # ← add
+    dropna: bool = True,  # ← we keep this for backward-compat
+    scaler_x: StandardScaler | None = None,  # ← add
     scaler_y: StandardScaler | None = None,  # ← add
-    shuffle: bool = True, 
+    shuffle: bool = True,
 ) -> DataLoader | None:
     # 1) Load
     df = pd.read_csv(csv_path)
@@ -165,14 +170,14 @@ def build_loader_from_csv(
 
     # 5) Arrays
     feats = df[features].to_numpy(copy=False)
-    ycol  = df[target].to_numpy(copy=False)
+    ycol = df[target].to_numpy(copy=False)
 
     # 6) Build ONLY clean windows (context + horizon finite)
     try:
-        if scaler_X is not None:
-            feats = scaler_X.transform(feats)
+        if scaler_x is not None:
+            feats = scaler_x.transform(feats)
         if scaler_y is not None:
-            ycol = scaler_y.transform(ycol.reshape(-1,1)).ravel()
+            ycol = scaler_y.transform(ycol.reshape(-1, 1)).ravel()
 
         x, y = _build_clean_windows(feats, ycol, context, horizon)
     except ValueError as e:
@@ -191,9 +196,28 @@ def build_loader_from_csv(
 
     return DataLoader(ds, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
+
+def dataset_len(loader) -> int:
+    """
+    Returns the number of samples in loader.dataset.
+    Raises if the dataset is not Sized.
+    """
+    ds = loader.dataset
+
+    if not hasattr(ds, "__len__"):
+        raise TypeError(
+            f"Dataset of type {type(ds).__name__} does not implement __len__(). "
+            "This is likely an IterableDataset, which is incompatible here."
+        )
+
+    # Tell type checker it's safe
+    return len(cast(Sized, ds))
+
+
 # ---------------------------
 # Tiny TimesNet-based model
 # ---------------------------
+
 
 class TinyForecastSP(nn.Module):
     """
@@ -201,6 +225,7 @@ class TinyForecastSP(nn.Module):
     Input:  [B, L, C]
     Output: [B, H]
     """
+
     def __init__(self, c: int, horizon: int, k: int = 3, num_kernels: int = 4):
         super().__init__()
         self.block = TimesBlock(d_model=c, d_ff=2 * c, k=k, num_kernels=num_kernels)
@@ -211,13 +236,17 @@ class TinyForecastSP(nn.Module):
         z = self.head(y.permute(0, 2, 1))  # [B,H,L]
         return z[:, :, -1]  # [B,H]
 
+
 # ---------------------------
 # Main
 # ---------------------------
 
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in-dir", required=True, help="Folder containing the CSV (e.g., src/data/yahoo-finance)")
+    ap.add_argument(
+        "--in-dir", required=True, help="Folder containing the CSV (e.g., src/data/yahoo-finance)"
+    )
     ap.add_argument("--name", required=True, help="CSV file name (e.g., apple.csv)")
 
     # Model / train
@@ -232,24 +261,57 @@ def main():
 
     # TimesNet knobs
     ap.add_argument("--k", type=int, default=3, help="Top-k Fourier components for TimesNet.")
-    ap.add_argument("--num-kernels", type=int, default=4, help="Number of learned frequency kernels per TimesBlock.")
+    ap.add_argument(
+        "--num-kernels",
+        type=int,
+        default=4,
+        help="Number of learned frequency kernels per TimesBlock.",
+    )
 
     # Data columns
-    ap.add_argument("--features", nargs="+", default=["Close", "Open", "High", "Low", "Volume"],
-                    help="Columns to use as model inputs (order matters).")
-    ap.add_argument("--target", default="Close", help="Which column to forecast (must be in --features).")
+    ap.add_argument(
+        "--features",
+        nargs="+",
+        default=["Close", "Open", "High", "Low", "Volume"],
+        help="Columns to use as model inputs (order matters).",
+    )
+    ap.add_argument(
+        "--target", default="Close", help="Which column to forecast (must be in --features)."
+    )
 
     # Split control
-    ap.add_argument("--skip-split", action="store_true",
-                    help="If set, assumes existing split CSVs under <in-dir>/splits/<name-stem>/")
+    ap.add_argument(
+        "--skip-split",
+        action="store_true",
+        help="If set, assumes existing split CSVs under <in-dir>/splits/<name-stem>/",
+    )
 
     # NEW: indicators passed to the splitter
-    ap.add_argument("--price-col", default="Close", help="Price column for indicators (default: Close)")
-    ap.add_argument("--ma", type=int, nargs="*", default=[], help="Simple moving average windows, e.g. --ma 20 50")
-    ap.add_argument("--ema", type=int, nargs="*", default=[], help="Exponential moving average windows, e.g. --ema 12 26")
-    ap.add_argument("--warmup", action="store_true", help="Use previous split tail to warm up indicators")
-    ap.add_argument("--append-indicators", action="store_true",
-                    help="Automatically append MA/EMA columns to --features")
+    ap.add_argument(
+        "--price-col", default="Close", help="Price column for indicators (default: Close)"
+    )
+    ap.add_argument(
+        "--ma",
+        type=int,
+        nargs="*",
+        default=[],
+        help="Simple moving average windows, e.g. --ma 20 50",
+    )
+    ap.add_argument(
+        "--ema",
+        type=int,
+        nargs="*",
+        default=[],
+        help="Exponential moving average windows, e.g. --ema 12 26",
+    )
+    ap.add_argument(
+        "--warmup", action="store_true", help="Use previous split tail to warm up indicators"
+    )
+    ap.add_argument(
+        "--append-indicators",
+        action="store_true",
+        help="Automatically append MA/EMA columns to --features",
+    )
 
     args = ap.parse_args()
 
@@ -261,7 +323,7 @@ def main():
     dataset_name = csv_path.stem
 
     # If user requested indicators and wants them auto-added to features, extend features now
-    indicator_cols: List[str] = []
+    indicator_cols: list[str] = []
     indicator_cols += [f"MA{w}" for w in (args.ma or [])]
     indicator_cols += [f"EMA{w}" for w in (args.ema or [])]
     if args.append_indicators and indicator_cols:
@@ -272,8 +334,10 @@ def main():
 
     # 1) Split (unless user already split)
     if not args.skip_split:
-        print(f"🔧 Splitting {csv_path} into train/val/test..."
-              + (" with indicators" if indicator_cols else ""))
+        print(
+            f"🔧 Splitting {csv_path} into train/val/test..."
+            + (" with indicators" if indicator_cols else "")
+        )
         split_dataset(
             in_dir=in_dir,
             name=args.name,
@@ -293,58 +357,92 @@ def main():
     # 2) Loaders from split CSVs
     split_root = in_dir / "splits" / dataset_name
     train_csv = split_root / f"{dataset_name}_train.csv"
-    val_csv   = split_root / f"{dataset_name}_val.csv"
-    test_csv  = split_root / f"{dataset_name}_test.csv"
+    val_csv = split_root / f"{dataset_name}_val.csv"
+    test_csv = split_root / f"{dataset_name}_test.csv"
 
     if not (train_csv.exists() and val_csv.exists() and test_csv.exists()):
-        raise FileNotFoundError(f"Expected split files under {split_root}. Run without --skip-split first.")
+        raise FileNotFoundError(
+            f"Expected split files under {split_root}. Run without --skip-split first."
+        )
 
     train_df = pd.read_csv(train_csv)
     feat_cols = args.features
-    tgt_col  = args.target
+    tgt_col = args.target
 
-    scaler_X = StandardScaler().fit(train_df[feat_cols].to_numpy())
+    scaler_x = StandardScaler().fit(train_df[feat_cols].to_numpy())
     scaler_y = StandardScaler().fit(train_df[[tgt_col]].to_numpy())
 
     # If user did NOT warmup indicators, early rows may have NaNs → dropna=True handles it.
     dropna = not args.warmup
 
     dtr = build_loader_from_csv(
-    train_csv, args.features, args.context, args.horizon, args.target, args.batch_size,
-    drop_last=True, allow_empty=False, dropna=dropna,
-    scaler_X=scaler_X, scaler_y=scaler_y, shuffle=True
+        train_csv,
+        args.features,
+        args.context,
+        args.horizon,
+        args.target,
+        args.batch_size,
+        drop_last=True,
+        allow_empty=False,
+        dropna=dropna,
+        scaler_x=scaler_x,
+        scaler_y=scaler_y,
+        shuffle=True,
     )
+
+    if dtr is None:
+        raise ValueError("Train DataLoader is None. Did build_loader_from_csv() return empty?")
+
     dval = build_loader_from_csv(
-        val_csv,   args.features, args.context, args.horizon, args.target, args.batch_size,
-        drop_last=False, allow_empty=True, dropna=dropna,
-        scaler_X=scaler_X, scaler_y=scaler_y, shuffle=False
+        val_csv,
+        args.features,
+        args.context,
+        args.horizon,
+        args.target,
+        args.batch_size,
+        drop_last=False,
+        allow_empty=True,
+        dropna=dropna,
+        scaler_x=scaler_x,
+        scaler_y=scaler_y,
+        shuffle=False,
     )
-    dte  = build_loader_from_csv(
-        test_csv,  args.features, args.context, args.horizon, args.target, args.batch_size,
-        drop_last=False, allow_empty=True, dropna=dropna,
-        scaler_X=scaler_X, scaler_y=scaler_y, shuffle=False
+    dte = build_loader_from_csv(
+        test_csv,
+        args.features,
+        args.context,
+        args.horizon,
+        args.target,
+        args.batch_size,
+        drop_last=False,
+        allow_empty=True,
+        dropna=dropna,
+        scaler_x=scaler_x,
+        scaler_y=scaler_y,
+        shuffle=False,
     )
 
     c = len(args.features)
     device = args.device
 
-#  Debug info DEBUGGGGGGGGGG
+    #  Debug info DEBUGGGGGGGGGG
     print(f"Using device: {device}")
-    print("Train windows:", len(dtr.dataset))
-    print("Val windows:",   0 if dval is None else len(dval.dataset))
-    print("Test windows:",  0 if dte is None else len(dte.dataset))
-
+    print("Train windows:", dataset_len(dtr))
+    print("Val windows:", dataset_len(dval) if dval is not None else 0)
+    print("Test windows:", dataset_len(dte) if dte is not None else 0)
 
     # 3) Model, opt, loss
-    model = TinyForecastSP(c=c, horizon=args.horizon, k=args.k, num_kernels=args.num_kernels).to(device)
+    model = TinyForecastSP(c=c, horizon=args.horizon, k=args.k, num_kernels=args.num_kernels).to(
+        device
+    )
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_fn = nn.L1Loss()
 
     # 4) Train (with per-epoch val for curves)
     t0 = time.perf_counter()
     model.train()
-    train_l1_hist: List[float] = []
-    val_l1_hist:   List[float] = []
+    train_l1_hist: list[float] = []
+    val_l1_hist: list[float] = []
 
     for epoch in range(args.epochs):
         tot = 0.0
@@ -395,18 +493,19 @@ def main():
     if len(yt_list) == 0:
         m = {"MAE": float("nan"), "RMSE": float("nan"), "MAPE": float("nan")}
         print("Test skipped (no windows).")
-        yt_all: Optional[torch.Tensor] = None
-        yh_all: Optional[torch.Tensor] = None
+        yt_all: torch.Tensor | None = None
+        yh_all: torch.Tensor | None = None
     else:
-        yt_all = torch.cat(yt_list, 0)   # [N, H]
-        yh_all = torch.cat(yh_list, 0)   # [N, H]
+        yt_all = torch.cat(yt_list, 0)  # [N, H]
+        yh_all = torch.cat(yh_list, 0)  # [N, H]
         m = metrics(yt_all, yh_all)
         print(f"Test metrics: MAE={m['MAE']:.4f} | RMSE={m['RMSE']:.4f} | MAPE={m['MAPE']:.4f}")
 
     # 6) Plots & lightweight artifacts
     out_dir = args.out.parent
-    loss_png = save_loss_curves(train_l1_hist, val_l1_hist if val_l1_hist else None,
-                                out_dir=out_dir, title="L1 per epoch")
+    loss_png = save_loss_curves(
+        train_l1_hist, val_l1_hist if val_l1_hist else None, out_dir=out_dir, title="L1 per epoch"
+    )
 
     preds_png = multi_png = scatter_png = None
     preds_csv = out_dir / "test_predictions.csv"
@@ -418,7 +517,9 @@ def main():
 
         # --- metrics on inverse-scaled arrays ---
         m = metrics(torch.from_numpy(yt_all_np), torch.from_numpy(yh_all_np))
-        print(f"Test metrics (inv-scaled): MAE={m['MAE']:.4f} | RMSE={m['RMSE']:.4f} | MAPE={m['MAPE']:.4f}")
+        print(
+            f"Test metrics (inv-scaled): MAE={m['MAE']:.4f} | RMSE={m['RMSE']:.4f} | MAPE={m['MAPE']:.4f}"
+        )
 
         # --- h=0 arrays for plots ---
         y_true_h0 = yt_all_np[:, 0]
@@ -433,23 +534,27 @@ def main():
 
         # --- line plot ---
         preds_png = save_predictions_vs_actual(
-            y_true_h0, y_pred_h0, out_dir=out_dir,
-            title_suffix=f"(H=0, {dataset_name})", x_index=None
+            y_true_h0,
+            y_pred_h0,
+            out_dir=out_dir,
+            title_suffix=f"(H=0, {dataset_name})",
+            x_index=None,
         )
 
         # --- multi-horizon ---
         candidate_h = [0, 1, 3, 7]
-        H = yt_all_np.shape[1]
-        hs = [h for h in candidate_h if h < H]
+        height = yt_all_np.shape[1]
+        hs = [h for h in candidate_h if h < height]
         multi_png = save_multi_horizon_curves(
-            yt_all_np, yh_all_np, horizons=hs, out_dir=out_dir,
-            title_prefix=f"{csv_path.stem} (target={args.target})"
+            yt_all_np,
+            yh_all_np,
+            horizons=hs,
+            out_dir=out_dir,
+            title_prefix=f"{csv_path.stem} (target={args.target})",
         )
 
         # --- scatter ---
-        scatter_png = save_scatter_pred_vs_true(
-            y_true_h0, y_pred_h0, out_dir=out_dir
-        )
+        scatter_png = save_scatter_pred_vs_true(y_true_h0, y_pred_h0, out_dir=out_dir)
 
     # 7) Save a tiny report
     res = {

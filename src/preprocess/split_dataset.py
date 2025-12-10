@@ -13,25 +13,22 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Tuple, Optional, List
 
 import pandas as pd
-
 
 # ---------------------------
 # Indicator helpers
 # ---------------------------
 
+
 def _add_indicators(
     df: pd.DataFrame,
     price_col: str,
-    ma_windows: List[int],
-    ema_windows: List[int],
+    ma_windows: list[int],
+    ema_windows: list[int],
 ) -> pd.DataFrame:
     if price_col not in df.columns:
-        raise ValueError(
-            f"price column '{price_col}' not found in CSV (have: {list(df.columns)})"
-        )
+        raise ValueError(f"price column '{price_col}' not found in CSV (have: {list(df.columns)})")
     out = df.copy()
     for w in ma_windows:
         if w <= 0:
@@ -46,10 +43,10 @@ def _add_indicators(
 
 def _with_warmup(
     main_df: pd.DataFrame,
-    prev_tail_df: Optional[pd.DataFrame],
+    prev_tail_df: pd.DataFrame | None,
     price_col: str,
-    ma_windows: List[int],
-    ema_windows: List[int],
+    ma_windows: list[int],
+    ema_windows: list[int],
 ) -> pd.DataFrame:
     """
     If prev_tail_df is provided, vertically stack its tail ahead of main_df to compute indicators,
@@ -69,15 +66,20 @@ def _with_warmup(
     extended = _add_indicators(extended, price_col, ma_windows, ema_windows)
 
     # Drop the warm-up rows so the returned frame aligns to main_df only
-    return extended.iloc[len(prev_tail):].reset_index(drop=True)
+    return extended.iloc[len(prev_tail) :].reset_index(drop=True)
 
 
 # ---------------------------
 # Core split logic
 # ---------------------------
 
+
 def _validate_ratios(train_ratio: float, val_ratio: float, test_ratio: float) -> None:
-    for name, r in (("train_ratio", train_ratio), ("val_ratio", val_ratio), ("test_ratio", test_ratio)):
+    for name, r in (
+        ("train_ratio", train_ratio),
+        ("val_ratio", val_ratio),
+        ("test_ratio", test_ratio),
+    ):
         if r < 0:
             raise ValueError(f"{name} must be >= 0, got {r}")
     total = train_ratio + val_ratio + test_ratio
@@ -96,10 +98,10 @@ def split_dataset(
     test_ratio: float = 0.15,
     date_col: str = "Date",
     price_col: str = "Close",
-    ma_windows: Optional[List[int]] = None,
-    ema_windows: Optional[List[int]] = None,
+    ma_windows: list[int] | None = None,
+    ema_windows: list[int] | None = None,
     warmup: bool = False,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Split a time-ordered CSV (in folder/name format) into train/val/test by chronological order.
 
@@ -145,10 +147,12 @@ def split_dataset(
         else:
             n_val, n_test = 0, remaining
 
+    print(f"[split_dataset] n_train={n_train}, n_test={n_test}")
+
     # Slice
     train_df = df.iloc[:n_train].copy()
-    val_df   = df.iloc[n_train:n_train + n_val].copy()
-    test_df  = df.iloc[n_train + n_val:].copy()
+    val_df = df.iloc[n_train : n_train + n_val].copy()
+    test_df = df.iloc[n_train + n_val :].copy()
 
     # Indicators
     ma_windows = ma_windows or []
@@ -158,14 +162,14 @@ def split_dataset(
         if warmup:
             # compute with warmup (no leakage in returned frames)
             train_df_w = _with_warmup(train_df, None, price_col, ma_windows, ema_windows)
-            val_df_w   = _with_warmup(val_df,   train_df, price_col, ma_windows, ema_windows)
-            test_df_w  = _with_warmup(test_df,  val_df,   price_col, ma_windows, ema_windows)
+            val_df_w = _with_warmup(val_df, train_df, price_col, ma_windows, ema_windows)
+            test_df_w = _with_warmup(test_df, val_df, price_col, ma_windows, ema_windows)
             train_df, val_df, test_df = train_df_w, val_df_w, test_df_w
         else:
             # strict: compute per split independently (initial rows will be NaN until window filled)
             train_df = _add_indicators(train_df, price_col, ma_windows, ema_windows)
-            val_df   = _add_indicators(val_df,   price_col, ma_windows, ema_windows)
-            test_df  = _add_indicators(test_df,  price_col, ma_windows, ema_windows)
+            val_df = _add_indicators(val_df, price_col, ma_windows, ema_windows)
+            test_df = _add_indicators(test_df, price_col, ma_windows, ema_windows)
 
     # Save
     dataset_name = csv_path.stem
@@ -173,17 +177,19 @@ def split_dataset(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     train_path = out_dir / f"{dataset_name}_train.csv"
-    val_path   = out_dir / f"{dataset_name}_val.csv"
-    test_path  = out_dir / f"{dataset_name}_test.csv"
+    val_path = out_dir / f"{dataset_name}_val.csv"
+    test_path = out_dir / f"{dataset_name}_test.csv"
 
     train_df.to_csv(train_path, index=False)
     val_df.to_csv(val_path, index=False)
     test_df.to_csv(test_path, index=False)
 
     print(
-        f"[split_dataset] {csv_path.name}: total={n} → "
-        f"train={len(train_df)}, val={len(val_df)}, test={len(test_df)} | "
-        f"saved under {out_dir}"
+        f"[split_dataset] Sizes → "
+        f"total rows={n}, "
+        f"train={len(train_df)}, "
+        f"val={len(val_df)}, "
+        f"test={len(test_df)}"
     )
 
     return train_df, val_df, test_df
@@ -193,6 +199,7 @@ def split_dataset(
 # CLI
 # ---------------------------
 
+
 def _build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="Split a time-ordered CSV into train/val/test chronologically."
@@ -200,15 +207,33 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--in-dir", required=True, help="Input folder (e.g., src/data/yahoo-finance)")
     ap.add_argument("--name", required=True, help="CSV file name (e.g., apple.csv)")
     ap.add_argument("--train", type=float, default=0.7, help="Train ratio (default: 0.7)")
-    ap.add_argument("--val",   type=float, default=0.15, help="Validation ratio (default: 0.15)")
-    ap.add_argument("--test",  type=float, default=0.15, help="Test ratio (default: 0.15)")
+    ap.add_argument("--val", type=float, default=0.15, help="Validation ratio (default: 0.15)")
+    ap.add_argument("--test", type=float, default=0.15, help="Test ratio (default: 0.15)")
     ap.add_argument("--date-col", default="Date", help="Datetime column name (default: Date)")
 
     # Indicators
-    ap.add_argument("--price-col", default="Close", help="Price column for indicators (default: Close)")
-    ap.add_argument("--ma",  type=int, nargs="*", default=[], help="Simple moving average windows, e.g. --ma 20 50")
-    ap.add_argument("--ema", type=int, nargs="*", default=[], help="Exponential moving average windows, e.g. --ema 12 26")
-    ap.add_argument("--warmup", action="store_true", help="Use previous split tail to warm up indicators (no leakage in saved splits)")
+    ap.add_argument(
+        "--price-col", default="Close", help="Price column for indicators (default: Close)"
+    )
+    ap.add_argument(
+        "--ma",
+        type=int,
+        nargs="*",
+        default=[],
+        help="Simple moving average windows, e.g. --ma 20 50",
+    )
+    ap.add_argument(
+        "--ema",
+        type=int,
+        nargs="*",
+        default=[],
+        help="Exponential moving average windows, e.g. --ema 12 26",
+    )
+    ap.add_argument(
+        "--warmup",
+        action="store_true",
+        help="Use previous split tail to warm up indicators (no leakage in saved splits)",
+    )
     return ap
 
 
