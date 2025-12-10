@@ -7,3 +7,4 @@ torchtyping>=0.1.4
 beartype>=0.16
 yfinance>=0.2.40
 matplotlib>=3.8
+scikit-learn>=1.3

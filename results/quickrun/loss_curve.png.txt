@@ -1,0 +1,2 @@
+train_l1: len=50, finite=50, min=0.192371, max=0.622751
+val_l1: len=50, finite=50, min=0.344192, max=2.44207
