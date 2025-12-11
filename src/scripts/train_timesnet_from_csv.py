@@ -315,6 +315,14 @@ def main():
 
     args = ap.parse_args()
 
+    # Sanity checks on args
+    if any(col.endswith("_MA_future") for col in args.features):
+        raise ValueError(
+            "Future-based target columns (e.g., High_MA_future, Low_MA_future) "
+            "must NOT be included in --features. "
+            "They contain future information and would leak data into the model."
+        )
+
     set_repro(args.seed)
     args.out.parent.mkdir(parents=True, exist_ok=True)
 
