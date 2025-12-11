@@ -69,6 +69,43 @@ def _with_warmup(
     return extended.iloc[len(prev_tail) :].reset_index(drop=True)
 
 
+def add_future_moving_averages(df, horizon=15):
+    """
+    Adds future moving averages for High and Low prices.
+
+    Creates:
+        High_MA_future
+        Low_MA_future
+
+    Drops rows that do not have enough future data.
+    """
+    df = df.copy()
+
+    # Safety check
+    for col in ["High", "Low"]:
+        if col not in df.columns:
+            raise ValueError(
+                f"Column '{col}' missing for future MA computation. "
+                f"Available columns: {list(df.columns)}"
+            )
+
+    df["High_MA_future"] = (
+        df["High"]
+            .shift(-horizon)
+            .rolling(horizon)
+            .mean()
+    )
+
+    df["Low_MA_future"] = (
+        df["Low"]
+            .shift(-horizon)
+            .rolling(horizon)
+            .mean()
+    )
+
+    df = df.dropna(subset=["High_MA_future", "Low_MA_future"])
+    return df.reset_index(drop=True)
+
 # ---------------------------
 # Core split logic
 # ---------------------------
@@ -170,6 +207,11 @@ def split_dataset(
             train_df = _add_indicators(train_df, price_col, ma_windows, ema_windows)
             val_df = _add_indicators(val_df, price_col, ma_windows, ema_windows)
             test_df = _add_indicators(test_df, price_col, ma_windows, ema_windows)
+
+    # Add future MA targets
+    train_df = add_future_moving_averages(train_df, horizon=15)
+    val_df = add_future_moving_averages(val_df, horizon=15)
+    test_df = add_future_moving_averages(test_df, horizon=15)
 
     # Save
     dataset_name = csv_path.stem
