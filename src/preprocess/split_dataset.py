@@ -1,6 +1,7 @@
 # src/preprocess/split_dataset.py
 """
 Split a time-ordered CSV into train / val / test chronologically.
+Assumes 15-minute granularity (or multiples thereof) to keep forecasting windows causal.
 
 Usage:
   python src/preprocess/split_dataset.py \
@@ -14,6 +15,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 # ---------------------------
@@ -69,42 +71,26 @@ def _with_warmup(
     return extended.iloc[len(prev_tail) :].reset_index(drop=True)
 
 
-def add_future_moving_averages(df, horizon=15):
+def _assert_multiple_of_freq(df: pd.DataFrame, date_col: str, freq: str = "15min") -> None:
     """
-    Adds future moving averages for High and Low prices.
-
-    Creates:
-        High_MA_future
-        Low_MA_future
-
-    Drops rows that do not have enough future data.
+    Ensure all time deltas are integer multiples of the desired freq.
+    Allows gaps (e.g., overnight) as long as they are still multiples.
     """
-    df = df.copy()
-
-    # Safety check
-    for col in ["High", "Low"]:
-        if col not in df.columns:
-            raise ValueError(
-                f"Column '{col}' missing for future MA computation. "
-                f"Available columns: {list(df.columns)}"
-            )
-
-    df["High_MA_future"] = (
-        df["High"]
-            .shift(-horizon)
-            .rolling(horizon)
-            .mean()
-    )
-
-    df["Low_MA_future"] = (
-        df["Low"]
-            .shift(-horizon)
-            .rolling(horizon)
-            .mean()
-    )
-
-    df = df.dropna(subset=["High_MA_future", "Low_MA_future"])
-    return df.reset_index(drop=True)
+    if date_col not in df.columns:
+        raise ValueError(f"date_col '{date_col}' not found in dataframe")
+    deltas = df[date_col].diff().dropna()
+    if deltas.empty:
+        return
+    step = pd.to_timedelta(freq)
+    ratios = deltas / step  # float ratios
+    ratios_np = np.asarray(ratios, dtype=float)
+    bad_mask = np.abs(ratios_np - np.round(ratios_np)) > 1e-6
+    if bad_mask.any():
+        bad = ratios[bad_mask].head()
+        raise ValueError(
+            f"Non-{freq} aligned rows detected in {date_col}. "
+            f"Examples of bad deltas (in units of {freq}): {bad.tolist()}"
+        )
 
 # ---------------------------
 # Core split logic
@@ -165,6 +151,7 @@ def split_dataset(
 
     # Sort ascending by time
     df = df.sort_values(by=date_col).reset_index(drop=True)
+    _assert_multiple_of_freq(df, date_col, freq="15T")
 
     n = len(df)
     if n == 0:
@@ -207,11 +194,6 @@ def split_dataset(
             train_df = _add_indicators(train_df, price_col, ma_windows, ema_windows)
             val_df = _add_indicators(val_df, price_col, ma_windows, ema_windows)
             test_df = _add_indicators(test_df, price_col, ma_windows, ema_windows)
-
-    # Add future MA targets
-    train_df = add_future_moving_averages(train_df, horizon=15)
-    val_df = add_future_moving_averages(val_df, horizon=15)
-    test_df = add_future_moving_averages(test_df, horizon=15)
 
     # Save
     dataset_name = csv_path.stem
